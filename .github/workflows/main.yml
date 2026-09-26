@@ -1,0 +1,30 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt flake8
+
+      - name: Lint (syntax errors and undefined names)
+        run: flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
+
+      - name: Build Docker image
+        run: docker build -t aceest-fitness .
+
+      - name: Run tests inside the container
+        run: docker run --rm aceest-fitness pytest -v
