@@ -9,9 +9,14 @@ import os
 import random
 import sqlite3
 from datetime import date
+from functools import wraps
 
 from flask import (Flask, abort, flash, g, jsonify, redirect,
-                   render_template, request, url_for)
+                   render_template, request, session, url_for)
+from werkzeug.security import check_password_hash, generate_password_hash
+
+DEFAULT_USERNAME = "admin"
+DEFAULT_PASSWORD = "password123"
 
 # ---------- DOMAIN DATA ----------
 PROGRAMS = {
@@ -92,6 +97,10 @@ def generate_program(program_type=None, rng=random):
 
 # ---------- DATABASE ----------
 SCHEMA = """
+CREATE TABLE IF NOT EXISTS users (
+    username TEXT PRIMARY KEY,
+    password_hash TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS clients (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT UNIQUE NOT NULL,
@@ -130,6 +139,17 @@ def get_db():
 def init_db(path):
     with sqlite3.connect(path) as conn:
         conn.executescript(SCHEMA)
+        # Seed the default staff login (like the legacy app's admin user)
+        conn.execute(
+            "INSERT OR IGNORE INTO users (username, password_hash) VALUES (?, ?)",
+            (DEFAULT_USERNAME, generate_password_hash(DEFAULT_PASSWORD, method="pbkdf2:sha256")),
+        )
+
+
+def check_login(db, username, password):
+    row = db.execute("SELECT password_hash FROM users WHERE username = ?",
+                     (username,)).fetchone()
+    return row is not None and check_password_hash(row["password_hash"], password)
 
 
 def _to_float(value):
@@ -141,11 +161,24 @@ def _to_int(value):
 
 
 def create_client(db, data):
-    """Validate and insert a client. Returns the stored row as a dict."""
+    """Create a client from just a name and a program."""
     name = (data.get("name") or "").strip()
     program = data.get("program")
     if not name:
         raise ValueError("Name is required")
+    if program not in PROGRAMS:
+        raise ValueError("Select a valid program")
+    try:
+        db.execute("INSERT INTO clients (name, program) VALUES (?, ?)", (name, program))
+        db.commit()
+    except sqlite3.IntegrityError:
+        raise ValueError(f"Client '{name}' already exists")
+    return get_client(db, name)
+
+
+def update_profile(db, name, data):
+    """Update a client's profile details and recalculate calories."""
+    program = data.get("program")
     if program not in PROGRAMS:
         raise ValueError("Select a valid program")
     try:
@@ -154,19 +187,22 @@ def create_client(db, data):
         weight = _to_float(data.get("weight"))
     except (TypeError, ValueError):
         raise ValueError("Age, height and weight must be numbers")
+    for value in (age, height, weight):
+        if value is not None and value <= 0:
+            raise ValueError("Age, height and weight must be greater than 0")
     membership_end = data.get("membership_end") or None
     if membership_end:
-        date.fromisoformat(membership_end)  # raises ValueError if invalid
+        try:
+            date.fromisoformat(membership_end)
+        except ValueError:
+            raise ValueError("Membership end must be a valid date")
     calories = calculate_calories(weight, program) if weight else None
-    try:
-        db.execute(
-            "INSERT INTO clients (name, age, height, weight, program, calories, membership_end)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (name, age, height, weight, program, calories, membership_end),
-        )
-        db.commit()
-    except sqlite3.IntegrityError:
-        raise ValueError(f"Client '{name}' already exists")
+    db.execute(
+        "UPDATE clients SET program = ?, age = ?, height = ?, weight = ?, calories = ?,"
+        " membership_end = ? WHERE name = ?",
+        (program, age, height, weight, calories, membership_end, name),
+    )
+    db.commit()
     return get_client(db, name)
 
 
@@ -211,13 +247,41 @@ def create_app(test_config=None):
             abort(404)
         return client
 
+    def login_required(view):
+        @wraps(view)
+        def wrapped(*args, **kwargs):
+            if "user" not in session:
+                if request.path.startswith("/api/"):
+                    return jsonify(error="Login required"), 401
+                return redirect(url_for("login"))
+            return view(*args, **kwargs)
+        return wrapped
+
+    # ----- Login -----
+    @app.route("/login", methods=["GET", "POST"])
+    def login():
+        if request.method == "POST":
+            username = request.form.get("username", "").strip()
+            if check_login(get_db(), username, request.form.get("password", "")):
+                session["user"] = username
+                return redirect(url_for("index"))
+            flash("Invalid username or password", "error")
+        return render_template("login.html")
+
+    @app.route("/logout", methods=["POST"])
+    def logout():
+        session.clear()
+        return redirect(url_for("login"))
+
     # ----- HTML pages -----
     @app.route("/")
+    @login_required
     def index():
         clients = get_db().execute("SELECT name, program FROM clients ORDER BY name").fetchall()
         return render_template("index.html", clients=clients, programs=PROGRAMS)
 
     @app.route("/clients", methods=["POST"])
+    @login_required
     def add_client():
         try:
             client = create_client(get_db(), request.form)
@@ -228,6 +292,7 @@ def create_app(test_config=None):
         return redirect(url_for("client_detail", name=client["name"]))
 
     @app.route("/clients/<name>")
+    @login_required
     def client_detail(name):
         client = _client_or_404(name)
         db = get_db()
@@ -239,9 +304,22 @@ def create_app(test_config=None):
             " WHERE client_name = ? ORDER BY date DESC", (name,)
         ).fetchall()
         return render_template("client.html", client=client, program=PROGRAMS.get(client["program"]),
-                               progress=progress, workouts=workouts)
+                               programs=PROGRAMS, progress=progress, workouts=workouts)
+
+    @app.route("/clients/<name>/profile", methods=["POST"])
+    @login_required
+    def edit_profile(name):
+        _client_or_404(name)
+        try:
+            update_profile(get_db(), name, request.form)
+        except ValueError as exc:
+            flash(str(exc), "error")
+        else:
+            flash("Profile updated", "ok")
+        return redirect(url_for("client_detail", name=name))
 
     @app.route("/clients/<name>/generate", methods=["POST"])
+    @login_required
     def generate(name):
         client = _client_or_404(name)
         _, plan = generate_program(client["program"])
@@ -252,6 +330,7 @@ def create_app(test_config=None):
         return redirect(url_for("client_detail", name=name))
 
     @app.route("/clients/<name>/progress", methods=["POST"])
+    @login_required
     def add_progress(name):
         _client_or_404(name)
         try:
@@ -270,6 +349,7 @@ def create_app(test_config=None):
         return redirect(url_for("client_detail", name=name))
 
     @app.route("/clients/<name>/workouts", methods=["POST"])
+    @login_required
     def add_workout(name):
         _client_or_404(name)
         workout_type = (request.form.get("workout_type") or "").strip()
@@ -298,10 +378,12 @@ def create_app(test_config=None):
         return jsonify(status="ok")
 
     @app.route("/api/programs")
+    @login_required
     def api_programs():
         return jsonify(PROGRAMS)
 
     @app.route("/api/clients", methods=["GET", "POST"])
+    @login_required
     def api_clients():
         db = get_db()
         if request.method == "POST":
@@ -314,6 +396,7 @@ def create_app(test_config=None):
         return jsonify([get_client(db, r["name"]) for r in rows])
 
     @app.route("/api/clients/<name>")
+    @login_required
     def api_client(name):
         return jsonify(_client_or_404(name))
 

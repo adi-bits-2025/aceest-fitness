@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block title %}Login - ACEest{% endblock %}
+{% block content %}
+<section style="max-width:360px;margin:40px auto">
+  <h2>Staff Login</h2>
+  <form method="post" action="{{ url_for('login') }}">
+    <label>Username</label><input name="username" required autofocus>
+    <label>Password</label><input name="password" type="password" required>
+    <button type="submit">Login</button>
+  </form>
+</section>
+{% endblock %}
