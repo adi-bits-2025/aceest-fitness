@@ -7,7 +7,9 @@
   <style>
     body { font-family: Arial, sans-serif; background: #1a1a1a; color: #eee; margin: 0; }
     header { background: #d4af37; color: #000; padding: 16px 24px; }
+    header { display: flex; justify-content: space-between; align-items: center; }
     header a { color: #000; text-decoration: none; font-size: 22px; font-weight: bold; }
+    header form button { margin: 0; background: #000; color: #d4af37; }
     main { max-width: 960px; margin: 0 auto; padding: 16px; }
     section { background: #262626; border-radius: 6px; padding: 16px; margin-bottom: 16px; }
     h2 { color: #d4af37; margin-top: 0; font-size: 18px; }
@@ -25,7 +27,14 @@
   </style>
 </head>
 <body>
-  <header><a href="{{ url_for('index') }}">ACEest Fitness &amp; Gym</a></header>
+  <header>
+    <a href="{{ url_for('index') }}">ACEest Fitness &amp; Gym</a>
+    {% if session.user %}
+      <form method="post" action="{{ url_for('logout') }}">
+        <span>{{ session.user }}</span> <button type="submit">Logout</button>
+      </form>
+    {% endif %}
+  </header>
   <main>
     {% for category, message in get_flashed_messages(with_categories=true) %}
       <div class="flash {{ category }}">{{ message }}</div>

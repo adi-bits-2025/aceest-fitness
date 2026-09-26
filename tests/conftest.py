@@ -5,7 +5,7 @@ import pytest
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from app import create_app  # noqa: E402
+from app import DEFAULT_PASSWORD, DEFAULT_USERNAME, create_app  # noqa: E402
 
 
 @pytest.fixture
@@ -15,15 +15,25 @@ def app(tmp_path):
 
 
 @pytest.fixture
-def client(app):
+def anon_client(app):
+    """A test client that is NOT logged in."""
     return app.test_client()
 
 
 @pytest.fixture
+def client(app):
+    """A test client logged in with the default staff account."""
+    c = app.test_client()
+    c.post("/login", data={"username": DEFAULT_USERNAME, "password": DEFAULT_PASSWORD})
+    return c
+
+
+@pytest.fixture
 def sample_client(client):
-    """Create one client ('Ravi') through the HTML form and return its name."""
-    client.post("/clients", data={
-        "name": "Ravi", "age": "30", "height": "175", "weight": "80",
-        "program": "Fat Loss", "membership_end": "2099-12-31",
+    """Create 'Ravi' (name + program), then fill in the profile page."""
+    client.post("/clients", data={"name": "Ravi", "program": "Fat Loss"})
+    client.post("/clients/Ravi/profile", data={
+        "program": "Fat Loss", "age": "30", "height": "175", "weight": "80",
+        "membership_end": "2099-12-31",
     })
     return "Ravi"

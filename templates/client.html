@@ -18,6 +18,22 @@
       <button type="submit">Generate Program</button>
     </form>
   </section>
+  <section>
+    <h2>Edit Profile</h2>
+    <form method="post" action="{{ url_for('edit_profile', name=client.name) }}">
+      <label>Program</label>
+      <select name="program">
+        {% for p in programs %}<option {% if p == client.program %}selected{% endif %}>{{ p }}</option>{% endfor %}
+      </select>
+      <label>Age</label><input name="age" type="number" min="1" value="{{ client.age or '' }}">
+      <label>Height (cm)</label><input name="height" type="number" step="0.1" min="1" value="{{ client.height or '' }}">
+      <label>Weight (kg)</label><input name="weight" type="number" step="0.1" min="1" value="{{ client.weight or '' }}">
+      <label>Membership end</label><input name="membership_end" type="date" value="{{ client.membership_end or '' }}">
+      <button type="submit">Save Profile</button>
+    </form>
+  </section>
+</div>
+<div class="grid">
   {% if program %}
   <section>
     <h2>Weekly Plan</h2>

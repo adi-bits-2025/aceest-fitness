@@ -18,14 +18,11 @@
     <h2>Add Client</h2>
     <form method="post" action="{{ url_for('add_client') }}">
       <label>Name</label><input name="name" required>
-      <label>Age</label><input name="age" type="number" min="1">
-      <label>Height (cm)</label><input name="height" type="number" step="0.1" min="1">
-      <label>Weight (kg)</label><input name="weight" type="number" step="0.1" min="1">
       <label>Program</label>
       <select name="program">
         {% for p in programs %}<option>{{ p }}</option>{% endfor %}
       </select>
-      <label>Membership end</label><input name="membership_end" type="date">
+      <p style="font-size:13px;color:#aaa">Add age, height, weight and membership on the client's profile page.</p>
       <button type="submit">Save Client</button>
     </form>
   </section>

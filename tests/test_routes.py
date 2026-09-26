@@ -2,8 +2,8 @@
 
 
 # ---------- health & API basics ----------
-def test_health(client):
-    res = client.get("/health")
+def test_health(anon_client):
+    res = anon_client.get("/health")
     assert res.status_code == 200
     assert res.get_json() == {"status": "ok"}
 
@@ -22,7 +22,7 @@ def test_index_empty(client):
 
 
 def test_add_client_redirects_to_detail(client):
-    res = client.post("/clients", data={"name": "Asha", "weight": "60", "program": "Beginner"})
+    res = client.post("/clients", data={"name": "Asha", "program": "Beginner"})
     assert res.status_code == 302
     assert res.headers["Location"].endswith("/clients/Asha")
 
@@ -47,12 +47,6 @@ def test_add_client_requires_name(client):
 def test_add_client_rejects_invalid_program(client):
     res = client.post("/clients", data={"name": "X", "program": "Yoga"}, follow_redirects=True)
     assert b"Select a valid program" in res.data
-
-
-def test_add_client_rejects_non_numeric_weight(client):
-    res = client.post("/clients", data={"name": "X", "weight": "abc", "program": "Beginner"},
-                      follow_redirects=True)
-    assert b"must be numbers" in res.data
 
 
 def test_add_duplicate_client(client, sample_client):
@@ -105,11 +99,11 @@ def test_workout_requires_type(client, sample_client):
 
 # ---------- JSON API: clients ----------
 def test_api_create_and_get_client(client):
-    res = client.post("/api/clients", json={"name": "Kiran", "height": 180, "weight": 90,
-                                            "program": "Muscle Gain"})
+    res = client.post("/api/clients", json={"name": "Kiran", "program": "Muscle Gain"})
     assert res.status_code == 201
     body = res.get_json()
-    assert body["calories"] == 90 * 35
+    assert body["program"] == "Muscle Gain"
+    assert body["calories"] is None          # no weight yet
     assert body["membership_status"] == "N/A"
 
     assert client.get("/api/clients/Kiran").get_json()["name"] == "Kiran"
@@ -128,3 +122,75 @@ def test_api_create_client_without_body(client):
 
 def test_api_unknown_client_404(client):
     assert client.get("/api/clients/nobody").status_code == 404
+
+
+# ---------- login ----------
+def test_pages_require_login(anon_client):
+    res = anon_client.get("/")
+    assert res.status_code == 302
+    assert res.headers["Location"].endswith("/login")
+
+
+def test_api_requires_login(anon_client):
+    assert anon_client.get("/api/clients").status_code == 401
+
+
+def test_login_page(anon_client):
+    assert b"Staff Login" in anon_client.get("/login").data
+
+
+def test_login_with_default_account(anon_client):
+    res = anon_client.post("/login", data={"username": "admin", "password": "password123"},
+                           follow_redirects=True)
+    assert b"Add Client" in res.data
+
+
+def test_login_wrong_password(anon_client):
+    res = anon_client.post("/login", data={"username": "admin", "password": "wrong"},
+                           follow_redirects=True)
+    assert b"Invalid username or password" in res.data
+
+
+def test_logout(client):
+    client.post("/logout")
+    assert client.get("/").status_code == 302
+
+
+# ---------- profile ----------
+def test_new_client_has_empty_profile(client):
+    client.post("/clients", data={"name": "Asha", "program": "Beginner"})
+    body = client.get("/api/clients/Asha").get_json()
+    assert body["age"] is None and body["weight"] is None and body["bmi"] is None
+
+
+def test_profile_update_recalculates(client, sample_client):
+    client.post(f"/clients/{sample_client}/profile", data={
+        "program": "Muscle Gain", "age": "31", "height": "175", "weight": "90",
+    })
+    body = client.get(f"/api/clients/{sample_client}").get_json()
+    assert body["program"] == "Muscle Gain"
+    assert body["calories"] == 90 * 35
+    assert body["membership_status"] == "N/A"   # cleared because left empty
+
+
+def test_profile_rejects_non_numeric_weight(client, sample_client):
+    res = client.post(f"/clients/{sample_client}/profile",
+                      data={"program": "Fat Loss", "weight": "abc"}, follow_redirects=True)
+    assert b"must be numbers" in res.data
+
+
+def test_profile_rejects_negative_values(client, sample_client):
+    res = client.post(f"/clients/{sample_client}/profile",
+                      data={"program": "Fat Loss", "weight": "-5"}, follow_redirects=True)
+    assert b"greater than 0" in res.data
+
+
+def test_profile_rejects_bad_date(client, sample_client):
+    res = client.post(f"/clients/{sample_client}/profile",
+                      data={"program": "Fat Loss", "membership_end": "31-12-2026"},
+                      follow_redirects=True)
+    assert b"valid date" in res.data
+
+
+def test_profile_unknown_client_404(client):
+    assert client.post("/clients/nobody/profile", data={"program": "Beginner"}).status_code == 404
