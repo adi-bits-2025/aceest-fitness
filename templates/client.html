@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+{% block title %}{{ client.name }} - ACEest{% endblock %}
+{% block content %}
+<p><a href="{{ url_for('index') }}">&larr; All clients</a></p>
+<div class="grid">
+  <section>
+    <h2>{{ client.name }}</h2>
+    <table>
+      <tr><th>Age</th><td>{{ client.age or '-' }}</td></tr>
+      <tr><th>Height / Weight</th><td>{{ client.height or '-' }} cm / {{ client.weight or '-' }} kg</td></tr>
+      <tr><th>BMI</th><td>{{ client.bmi or '-' }} {% if client.bmi_category %}({{ client.bmi_category }}){% endif %}</td></tr>
+      <tr><th>Program</th><td>{{ client.program }}</td></tr>
+      <tr><th>Daily calories</th><td>{{ client.calories or '-' }}</td></tr>
+      <tr><th>Membership</th><td>{{ client.membership_status }}{% if client.membership_end %} (ends {{ client.membership_end }}){% endif %}</td></tr>
+      <tr><th>Generated plan</th><td>{{ client.generated_plan or '-' }}</td></tr>
+    </table>
+    <form method="post" action="{{ url_for('generate', name=client.name) }}">
+      <button type="submit">Generate Program</button>
+    </form>
+  </section>
+  {% if program %}
+  <section>
+    <h2>Weekly Plan</h2>
+    <pre>{{ program.workout }}</pre>
+    <h2 style="margin-top:12px">Diet</h2>
+    <pre>{{ program.diet }}</pre>
+  </section>
+  {% endif %}
+</div>
+<div class="grid">
+  <section>
+    <h2>Weekly Adherence</h2>
+    <form method="post" action="{{ url_for('add_progress', name=client.name) }}">
+      <label>Week</label><input name="week" placeholder="e.g. Week 1">
+      <label>Adherence (%)</label><input name="adherence" type="number" min="0" max="100" required>
+      <button type="submit">Save Progress</button>
+    </form>
+    {% if progress %}
+      <table>
+        <tr><th>Week</th><th>Adherence</th></tr>
+        {% for p in progress %}<tr><td>{{ p['week'] }}</td><td>{{ p['adherence'] }}%</td></tr>{% endfor %}
+      </table>
+    {% endif %}
+  </section>
+  <section>
+    <h2>Log Workout</h2>
+    <form method="post" action="{{ url_for('add_workout', name=client.name) }}">
+      <label>Date</label><input name="date" type="date">
+      <label>Type</label><input name="workout_type" placeholder="e.g. Strength" required>
+      <label>Duration (min)</label><input name="duration_min" type="number" min="1">
+      <label>Notes</label><input name="notes">
+      <button type="submit">Save Workout</button>
+    </form>
+  </section>
+</div>
+<section>
+  <h2>Workout History</h2>
+  {% if workouts %}
+    <table>
+      <tr><th>Date</th><th>Type</th><th>Duration</th><th>Notes</th></tr>
+      {% for w in workouts %}
+        <tr><td>{{ w['date'] }}</td><td>{{ w['workout_type'] }}</td><td>{{ w['duration_min'] or '-' }} min</td><td>{{ w['notes'] }}</td></tr>
+      {% endfor %}
+    </table>
+  {% else %}
+    <p>No workouts logged.</p>
+  {% endif %}
+</section>
+{% endblock %}
